@@ -1,0 +1,43 @@
+%% Investigate the idea of dynamic single point imaging with regularized reconstruction for inherent distortion free MRI
+% Inherent distortion free mri with accelerated single point imaging and regularized reconstruction
+% possible names:
+% spicy
+% spike
+% spinach
+% spiro
+
+% Assumptions:
+% 1) No T1/T2 decay
+% 2) Single receiver work
+% 3) Initial image = 100% real-valued
+
+clear all;close all;clc;figure
+
+woff_fat=220; % Hz
+%% Phantom + field generation
+N=64;
+
+% Water layer phantom
+x_w=phantom(N);
+subplot(331);imshow(x_w,[]);title('Water phantom')
+
+% Fat layer phantom
+x_f=zeros(size(x_w));
+x_f(x_w==1)=.6; % fat fraction
+subplot(332);imshow(x_f,[]);title('Fat phantom')
+
+% B0
+w_max=100; % 100 Hz
+B0=w_max*normalise(generate_b0(1,N));
+ax=subplot(333);imshow(B0,[]);colormap(gca, jet);title('B0');
+
+%% Sequence settings
+SQ.TE=1.4E-03;
+SQ.ADC_duration=1E-03;
+fat_phi=@(tau,woff)(sin((woff_fat+woff)*tau));
+water_phi=@(tau,woff)(sin(woff*tau));
+
+%% Standard Cartesian acquisition
+for fe=1:2*N
+    kspace=fftshift(
+end
