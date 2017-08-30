@@ -10,12 +10,12 @@
 % 1) No T1/T2 decay
 % 2) Single receiver work
 % 3) Initial image = 100% real-valued
-clear all;close all;clc;figure
+clear all;close all;clc;
 addpath(genpath(cd))
 addpath(genpath('/nfs/rtsan02/userdata/home/tbruijne/Documents/MATLAB/MReconUMC/MReconUMC/MReconUMC_V5/Packages/utils'))
 addpath(genpath('/home/tbruijne/Documents/MATLAB/MReconUMC/MReconUMC/MReconUMC_V5/Standalone/Fessler_nufft/'))
 
-woff_fat=0; % Hz
+woff_fat=220; % Hz
 %% Phantom + field generation
 N=128;
 
@@ -24,20 +24,33 @@ x_w=phantom(N);
 
 % Fat layer phantom
 x_f=zeros(size(x_w));
-x_f(x_w==1)=0; % fat fraction
+x_f(x_w==1)=.3; % fat fraction
 x_w(x_w==1)=.2;
 subplot(331);imshow(x_w,[]);title('Water phantom')
 subplot(332);imshow(x_f,[]);title('Fat phantom')
 
-% B0cp=ceil(nsamples/2);
+% Add susceptibillity  source
+width_sus=2;
+dChi=zeros(N,N,N);
+dChi(N/2-width_sus:N/2+width_sus,N/2-width_sus:N/2+width_sus,N/2-width_sus:N/2+width_sus)=3*10^-6+.25*10^-6*rand(2*width_sus+1,2*width_sus+1,2*width_sus+1); % Titanium alloy
+B0 = 3; % tesla;
+voxelSize = [1 1 1]; % mm
+gyromagneticRatio = 2*pi*42.58e6;
+dB = B0*calculateFieldShift(dChi, voxelSize);
+dOhmega = dB*gyromagneticRatio;
 
-w_max=1; % 100 Hz
-B0=rot90(w_max*normalise(generate_b0(1,N)),1);
-subplot(333);imshow(B0,[]);colormap(gca, jet);title('B0');
+w_max=120; % 100 Hz
+B0=rot90(w_max*normalise(generate_b0(1,N)),1)+dOhmega(:,:,N/2);
+
+% Calculate derivative of B0 for intravoxel dephasing
+der_B0=conv2(B0,[0 -1 0; -1 4 -1; 0 -1 0],'same');
+
+subplot(333);imshow(B0,[]);colormap(gca, jet);title('B0 - susceptibillity');
+subplot(334);imshow(der_B0,[]);colormap(gca, jet);title('Derivative B0 ');
 
 %% Sequence settings
 SQ.TE=1.4E-03;
-SQ.ADC_duration=.1E-03;
+SQ.ADC_duration=1E-03;
 SQ.ADC_dt=SQ.ADC_duration/(N);
 fat_phi=@(tau,woff)(sin((woff_fat+woff).*tau));
 water_phi=@(tau,woff)(sin(woff.*tau));
@@ -45,9 +58,20 @@ water_phi=@(tau,woff)(sin(woff.*tau));
 %% Standard Cartesian acquisition
 k=zeros(N,N);
 for fe=1:N
+    t=SQ.TE+(fe-1)*SQ.ADC_dt;
     % Apply phase ramping due to off res + chem shift
-    x=exp(-1j*2*pi*fat_phi(SQ.TE+(fe-1)*SQ.ADC_dt,B0)).*x_f+...
-        exp(-1j*2*pi*water_phi(SQ.TE+(fe-1)*SQ.ADC_dt,B0)).*x_w;
+    x=exp(-1j*2*pi*fat_phi(t,B0)).*x_f+...
+        exp(-1j*2*pi*water_phi(t,B0)).*x_w;
+    
+    % Apply intravoxel dephasing 
+    for xcoord=1:N^2
+    spins=t*der_B0(xcoord);
+    if spins(end)>1
+        x(xcoord)=0;
+    else
+        x(xcoord)=x(xcoord)*exp(-4.6*abs(spins));
+    end
+    end
     
     % Sample a complete phase-encode line (say TE)
     X=ifftshift(fft2(fftshift(x)));
@@ -55,7 +79,7 @@ for fe=1:N
 end
 
 x_recon=ifftshift(ifft2(fftshift(k)));
-subplot(334);imshow(abs(x_recon),[]);title('Geometrically distorted')
+subplot(335);imshow(abs(x_recon),[]);title('Geometrically distorted')
 
 %% Proposed method
 % Assume I take 33 samples across the ADC --> 33 2D images
